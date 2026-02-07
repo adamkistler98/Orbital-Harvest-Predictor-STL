@@ -6,21 +6,27 @@ from datetime import date
 import os
 import streamlit as st
 
-# 1. AUTHENTICATION
+# 1. AUTHENTICATION & DIAGNOSTICS
 def get_config():
     config = SHConfig()
+    
+    # Debug: Print where we are finding keys (Check your terminal logs)
     if "SH_CLIENT_ID" in st.secrets:
+        print("Loading credentials from Streamlit Secrets...")
         config.sh_client_id = st.secrets["SH_CLIENT_ID"]
         config.sh_client_secret = st.secrets["SH_CLIENT_SECRET"]
     else:
+        print("Loading credentials from Environment Variables...")
         config.sh_client_id = os.environ.get("SH_CLIENT_ID")
         config.sh_client_secret = os.environ.get("SH_CLIENT_SECRET")
     
     if not config.sh_client_id:
-        raise ValueError("Missing Sentinel Hub Credentials! Check Streamlit Secrets.")
+        # Stop everything if keys are missing
+        raise ValueError("CRITICAL: No API Keys found. Please check .streamlit/secrets.toml")
+        
     return config
 
-# 2. DATA FETCHING (Nuclear Option: Get Everything)
+# 2. DATA FETCHING (Switched to L1C for Reliability)
 def get_sentinel_data(bbox_coords, time_interval):
     config = get_config()
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
@@ -40,15 +46,14 @@ def get_sentinel_data(bbox_coords, time_interval):
     }
     """
     
-    # CRITICAL FIX: maxcc=1.0 (100%).
-    # We force the API to return ALL data, ignoring cloud filters.
     request = SentinelHubRequest(
         evalscript=evalscript,
         input_data=[
             SentinelHubRequest.input_data(
-                data_collection=DataCollection.SENTINEL2_L2A,
+                # CHANGED: L1C is the "Raw" data. It is much more robust for free tiers.
+                data_collection=DataCollection.SENTINEL2_L1C, 
                 time_interval=time_interval,
-                maxcc=1.0 
+                maxcc=1.0 # Allow ALL clouds
             )
         ],
         responses=[
@@ -59,9 +64,13 @@ def get_sentinel_data(bbox_coords, time_interval):
         config=config,
     )
 
-    response_list = request.get_data()
-    
-    # If the satellite returns absolutely nothing, the servers might be down.
+    # We use a try/except block here to catch the specific API error
+    try:
+        response_list = request.get_data()
+    except Exception as e:
+        print(f"API REQUEST FAILED: {e}")
+        return [], []
+
     if not response_list or len(response_list) < 2:
         return [], []
     
@@ -77,9 +86,7 @@ def get_sentinel_data(bbox_coords, time_interval):
             ts_date = pd.to_datetime(ts_str).date()
             avg_ndvi = np.mean(img)
             
-            # LOOSE FILTER:
-            # We accept anything > -1.0. This includes winter fields (0.1) and snow (-0.1).
-            # We only reject mathematical errors (NaN).
+            # Keep data unless it is physically impossible (NaN)
             if not np.isnan(avg_ndvi):
                 clean_dates.append(ts_date)
                 ndvi_scores.append(avg_ndvi)
@@ -92,7 +99,6 @@ def get_visual_confirm(bbox_coords, date_obj):
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
     date_str = date_obj.strftime("%Y-%m-%d")
     
-    # True Color Script
     evalscript = """
     //VERSION=3
     function setup() {
@@ -110,9 +116,10 @@ def get_visual_confirm(bbox_coords, date_obj):
         evalscript=evalscript,
         input_data=[
             SentinelHubRequest.input_data(
-                data_collection=DataCollection.SENTINEL2_L2A,
+                # CHANGED: L1C here too
+                data_collection=DataCollection.SENTINEL2_L1C,
                 time_interval=(date_str, date_str), 
-                maxcc=1.0 # Allow clouds so we at least get an image
+                maxcc=1.0
             )
         ],
         responses=[SentinelHubRequest.output_response("default", MimeType.PNG)],
@@ -120,7 +127,11 @@ def get_visual_confirm(bbox_coords, date_obj):
         config=config,
     )
     
-    data = request.get_data()
-    if len(data) > 0:
-        return data[0]
+    try:
+        data = request.get_data()
+        if len(data) > 0:
+            return data[0]
+    except:
+        return None
+        
     return None
