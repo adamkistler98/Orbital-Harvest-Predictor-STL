@@ -1,4 +1,3 @@
-# src/satellite.py
 import sentinelhub
 from sentinelhub import SHConfig, SentinelHubRequest, DataCollection, MimeType, BBox, CRS
 import numpy as np
@@ -7,8 +6,10 @@ from datetime import date
 import os
 import streamlit as st
 
+# 1. AUTHENTICATION
 def get_config():
     config = SHConfig()
+    # Prioritize Streamlit Secrets (Cloud), fallback to Env Vars (Local)
     if "SH_CLIENT_ID" in st.secrets:
         config.sh_client_id = st.secrets["SH_CLIENT_ID"]
         config.sh_client_secret = st.secrets["SH_CLIENT_SECRET"]
@@ -17,9 +18,10 @@ def get_config():
         config.sh_client_secret = os.environ.get("SH_CLIENT_SECRET")
     
     if not config.sh_client_id:
-        raise ValueError("Missing Sentinel Hub Credentials!")
+        raise ValueError("Missing Sentinel Hub Credentials! Check Streamlit Secrets.")
     return config
 
+# 2. DATA FETCHING (NDVI History)
 def get_sentinel_data(bbox_coords, time_interval):
     """
     Fetches historical NDVI values and handles empty responses safely.
@@ -27,6 +29,7 @@ def get_sentinel_data(bbox_coords, time_interval):
     config = get_config()
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
     
+    # NDVI Script
     evalscript = """
     //VERSION=3
     function setup() {
@@ -47,7 +50,7 @@ def get_sentinel_data(bbox_coords, time_interval):
             SentinelHubRequest.input_data(
                 data_collection=DataCollection.SENTINEL2_L2A,
                 time_interval=time_interval,
-                maxcc=0.3 # Increased to 30% to find more matches
+                maxcc=0.5 # FIXED: Increased to 50% cloud cover to find more data
             )
         ],
         responses=[
@@ -78,12 +81,14 @@ def get_sentinel_data(bbox_coords, time_interval):
             
             avg_ndvi = np.mean(img)
             
+            # Filter out bad data (negatives usually mean water or error)
             if not np.isnan(avg_ndvi) and avg_ndvi > -0.5:
                 clean_dates.append(ts_date)
                 ndvi_scores.append(avg_ndvi)
             
     return clean_dates, ndvi_scores
 
+# 3. VISUAL CONFIRMATION (True Color Image)
 def get_visual_confirm(bbox_coords, date_obj):
     """
     Fetches a True Color image.
@@ -111,7 +116,7 @@ def get_visual_confirm(bbox_coords, date_obj):
             SentinelHubRequest.input_data(
                 data_collection=DataCollection.SENTINEL2_L2A,
                 time_interval=(date_str, date_str), 
-                maxcc=1.0 
+                maxcc=1.0 # Allow full cloud cover for the visual proof (better than crashing)
             )
         ],
         responses=[SentinelHubRequest.output_response("default", MimeType.PNG)],
