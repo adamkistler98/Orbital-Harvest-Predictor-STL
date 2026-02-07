@@ -2,23 +2,25 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import date, timedelta
-from src.satellite import get_sentinel_data, get_filmstrip
+from src.satellite import get_sentinel_data, get_visual_confirm
 from src.forecaster import predict_health
 
 # 1. PAGE CONFIG
 st.set_page_config(
-    page_title="Orbital Harvest // Pro", 
-    page_icon="🛰️", 
+    page_title="Orbital Harvest // St. Louis", 
+    page_icon="🌾", 
     layout="wide"
 )
 
-# 2. TITLE (Minimalist, No Images)
-st.title("🛰️ Orbital Harvest // Command Center")
+# 2. TITLE
+st.title("🌾 Orbital Harvest Predictor")
+st.markdown("Automated crop yield forecasting using Sentinel-2 satellite imagery.")
 st.markdown("---")
 
 # 3. SIDEBAR CONTROLS
-st.sidebar.header("📍 Target Selector")
+st.sidebar.header("Configuration")
 
+# Target Selector
 targets = {
     "St. Louis, MO (Grafton Farms)": [-90.44, 38.97, -90.43, 38.98],
     "Napa Valley, CA (Vineyards)": [-122.28, 38.42, -122.27, 38.43],
@@ -26,92 +28,86 @@ targets = {
     "Custom Coordinates": None
 }
 
-target_name = st.sidebar.selectbox("Region:", list(targets.keys()))
+target_name = st.sidebar.selectbox("Select Location:", list(targets.keys()))
 
 if target_name == "Custom Coordinates":
     default_coords = [-90.44, 38.97, -90.43, 38.98]
-    coords_input = st.sidebar.text_input("BBox Coordinates:", str(default_coords))
+    coords_input = st.sidebar.text_input("Enter BBox Coordinates:", str(default_coords))
 else:
     coords_input = str(targets[target_name])
 
 st.sidebar.markdown("---")
-st.sidebar.header("🗓️ Analysis Window")
 
-# MANUAL DATE PICKER (Default: 2 Years)
-col_start, col_end = st.sidebar.columns(2)
-start_d = col_start.date_input("Start", date.today() - timedelta(days=730))
-end_d = col_end.date_input("End", date.today())
+# Date Picker (Manual)
+st.sidebar.header("Analysis Period")
+# Default to 1 Year (365 days) - This is the safest default to ensure you find data
+default_start = date.today() - timedelta(days=365)
+start_d = st.sidebar.date_input("Start Date", default_start)
+end_d = st.sidebar.date_input("End Date", date.today())
 
-if st.sidebar.button("📡 Acquire Satellite Feed"):
-    with st.spinner("Establishing Uplink... Downloading Raw Telemetry..."):
+if st.sidebar.button("Run Analysis"):
+    with st.spinner("Fetching satellite data..."):
         try:
             bbox = eval(coords_input)
             
-            # 1. FETCH DATA (Aggressive Mode)
+            # 1. GET DATA
             dates, ndvi_scores = get_sentinel_data(bbox, (start_d, end_d))
             
-            # 2. ERROR HANDLING (Soft Fail)
-            if not dates or len(dates) < 3:
-                st.warning(f"Low Signal: Only found {len(dates)} clear data points. Try a larger date range or different location.")
-                # We do NOT stop. We try to plot what we have.
+            # Check if we got anything
+            if not dates:
+                st.error("No clear data found for this date range. Try expanding the range to 1 year.")
+                st.stop()
+                
+            # 2. GET VISUAL (Just the latest valid one)
+            last_date = dates[-1]
+            visual_image = get_visual_confirm(bbox, last_date)
             
             # 3. RUN FORECAST
-            if len(dates) > 5:
-                future_days, predicted_ndvi, trend, confidence = predict_health(dates, ndvi_scores)
-            else:
-                trend = 0
-                confidence = 0
+            future_days, predicted_ndvi, trend, confidence = predict_health(dates, ndvi_scores)
 
-            # --- VISUAL FEED (THE FILMSTRIP) ---
-            st.subheader("📸 Raw Satellite Feed (Visual Verification)")
-            # Grab 4 actual images from the timeframe
-            filmstrip = get_filmstrip(bbox, dates, limit=4)
+            # --- DASHBOARD ---
             
-            if filmstrip:
-                cols = st.columns(len(filmstrip))
-                for idx, (img_date, img_data) in enumerate(filmstrip):
-                    with cols[idx]:
-                        st.image(img_data, caption=f"Capture: {img_date}", use_container_width=True)
-            else:
-                st.warning("Visual feed unavailable for this sector.")
+            # Row 1: Visuals
+            col1, col2 = st.columns([1, 2])
             
-            st.markdown("---")
-
-            # --- ANALYTICS ---
-            col_chart, col_metrics = st.columns([3, 1])
-
-            with col_metrics:
-                st.subheader("Telemetry")
-                current_health = ndvi_scores[-1] if ndvi_scores else 0
-                
-                st.metric("Current NDVI", f"{current_health:.2f}")
-                st.metric("Passes Analyzed", f"{len(dates)}")
-                
-                if trend > 0.0001:
-                    st.metric("Trend", "Positive", delta="Growing")
-                elif trend < -0.0001:
-                    st.metric("Trend", "Negative", delta="Declining")
+            with col1:
+                st.subheader("Satellite Feed")
+                if visual_image is not None:
+                    st.image(visual_image, caption=f"Real Image: {last_date}", use_container_width=True)
                 else:
-                    st.metric("Trend", "Stable")
-                
-                st.metric("Model Confidence", f"{confidence*100:.1f}%")
-
-            with col_chart:
-                st.subheader("Biomass Trajectory")
+                    st.warning("Visual preview unavailable.")
+                    
+            with col2:
+                st.subheader("Crop Health Trends (NDVI)")
                 chart_data = pd.DataFrame({
                     "Date": dates,
-                    "NDVI (Biomass)": ndvi_scores
+                    "Health Index": ndvi_scores
                 }).set_index("Date")
                 st.line_chart(chart_data)
 
-            # --- DATA EXPORT ---
-            with st.expander("💾 Download Raw Mission Data"):
-                df_export = pd.DataFrame({"Date": dates, "NDVI": ndvi_scores})
-                csv = df_export.to_csv(index=False).encode('utf-8')
-                st.download_button("Download .CSV", csv, "orbital_data.csv", "text/csv")
+            # Row 2: Metrics
+            st.markdown("---")
+            m1, m2, m3, m4 = st.columns(4)
+            
+            m1.metric("Current Health", f"{ndvi_scores[-1]:.2f}")
+            m2.metric("Images Analyzed", len(dates))
+            
+            if trend > 0.0001:
+                m3.metric("Trend", "Growing", delta="+Positive")
+            elif trend < -0.0001:
+                m3.metric("Trend", "Declining", delta="-Negative")
+            else:
+                m3.metric("Trend", "Stable", delta="Neutral")
+                
+            m4.metric("Confidence", f"{confidence*100:.1f}%")
+            
+            # Data Export
+            with st.expander("View Raw Data"):
+                df = pd.DataFrame({"Date": dates, "NDVI": ndvi_scores})
+                st.dataframe(df)
 
         except Exception as e:
-            st.error(f"Critical System Failure: {e}")
+            st.error(f"Error: {e}")
 
 else:
-    st.info("System Ready. Select Parameters and Initiate Uplink.")
+    st.info("Select a location and date range, then click 'Run Analysis'.")
