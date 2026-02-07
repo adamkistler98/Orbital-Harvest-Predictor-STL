@@ -12,8 +12,14 @@ st.set_page_config(page_title="Orbital Harvest", page_icon="🌾", layout="wide"
 st.title("🌾 Orbital Harvest Predictor")
 st.markdown("---")
 
-# 3. SIDEBAR CONTROLS
+# 3. SIDEBAR
 st.sidebar.header("Configuration")
+
+# Credential Check
+if "SH_CLIENT_ID" in st.secrets:
+    st.sidebar.success("🔑 Keys Loaded from Secrets")
+else:
+    st.sidebar.error("❌ Keys NOT Found! Check .streamlit/secrets.toml")
 
 targets = {
     "St. Louis, MO (Grafton Farms)": [-90.44, 38.97, -90.43, 38.98],
@@ -25,7 +31,6 @@ targets = {
 target_name = st.sidebar.selectbox("Select Target:", list(targets.keys()))
 
 if target_name == "Custom Coordinates":
-    # Defaulting to a known working farm area
     default_coords = [-90.44, 38.97, -90.43, 38.98]
     coords_input = st.sidebar.text_input("Coordinates:", str(default_coords))
 else:
@@ -34,33 +39,48 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.header("Timeframe")
 
-# DEFAULT: 2 Years Back (730 Days). This guarantees we hit a summer season.
+# Use 2 Years to be safe
 default_start = date.today() - timedelta(days=730)
 start_d = st.sidebar.date_input("Start Date", default_start)
 end_d = st.sidebar.date_input("End Date", date.today())
 
-if st.sidebar.button("Run Analysis"):
-    with st.spinner("Establishing Downlink..."):
+# CONNECTION TEST BUTTON
+if st.sidebar.button("🛠️ Test Connection"):
+    with st.sidebar.status("Testing API Link..."):
+        try:
+            # Try to fetch 1 day of data
+            test_bbox = [-90.44, 38.97, -90.43, 38.98]
+            d, s = get_sentinel_data(test_bbox, (date.today()-timedelta(days=10), date.today()))
+            st.write(f"Response Length: {len(d)}")
+            if len(d) == 0:
+                st.error("API Connected but returned Empty Data.")
+            else:
+                st.success("API Operational!")
+        except Exception as e:
+            st.error(f"Connection Failed: {e}")
+
+if st.button("Run Analysis"):
+    with st.spinner("Analyzing Satellite Feed..."):
         try:
             bbox = eval(coords_input)
             
-            # 1. FETCH DATA
+            # 1. FETCH
             dates, ndvi_scores = get_sentinel_data(bbox, (start_d, end_d))
             
+            # Debug Message if empty
             if not dates:
-                st.error("Critical: No data returned. Check your API Credentials.")
+                st.error(f"No Data Found. \n1. Check Coordinates: {bbox} \n2. Check Dates: {start_d} to {end_d} \n3. Verify your Sentinel Hub Account is Active.")
                 st.stop()
             
-            # 2. FETCH VISUAL (Latest available)
+            # 2. VISUAL
             last_date = dates[-1]
             visual_image = get_visual_confirm(bbox, last_date)
             
             # 3. FORECAST
+            trend = 0
+            confidence = 0
             if len(dates) > 10:
                 future_days, predicted_ndvi, trend, confidence = predict_health(dates, ndvi_scores)
-            else:
-                trend = 0
-                confidence = 0
 
             # --- DISPLAY ---
             col1, col2 = st.columns([1, 2])
@@ -94,7 +114,6 @@ if st.sidebar.button("Run Analysis"):
                 
             m4.metric("Confidence", f"{confidence*100:.1f}%")
             
-            # RAW DATA DOWNLOAD
             with st.expander("Raw Data"):
                 df = pd.DataFrame({"Date": dates, "NDVI": ndvi_scores})
                 st.dataframe(df)
