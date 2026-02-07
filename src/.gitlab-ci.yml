@@ -1,0 +1,23 @@
+image: python:3.9-slim
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+
+stages:
+  - test
+
+run_tests:
+  stage: test
+  before_script:
+    - pip install -r requirements.txt
+  script:
+    - echo "Running Integrity Checks..."
+    # 1. Check if files exist
+    - ls src/forecaster.py
+    - ls src/satellite.py
+    # 2. Run a dry import to ensure no syntax errors
+    - python -c "from src.forecaster import predict_health; print('Forecaster Module Loaded Successfully')"
