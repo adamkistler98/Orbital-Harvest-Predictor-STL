@@ -2,7 +2,7 @@ import sentinelhub
 from sentinelhub import SHConfig, SentinelHubRequest, DataCollection, MimeType, BBox, CRS
 import numpy as np
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date
 import os
 import streamlit as st
 
@@ -20,7 +20,7 @@ def get_config():
         raise ValueError("Missing Sentinel Hub Credentials!")
     return config
 
-# 2. DATA FETCHING (Aggressive Mode)
+# 2. DATA FETCHING (Standard Mode)
 def get_sentinel_data(bbox_coords, time_interval):
     config = get_config()
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
@@ -39,14 +39,15 @@ def get_sentinel_data(bbox_coords, time_interval):
     }
     """
     
-    # We allow 100% clouds (maxcc=1.0) to ensure we get a response
+    # We use 0.5 (50%) cloud cover. This is the "Sweet Spot."
+    # It filters out total whiteouts but keeps partly cloudy days.
     request = SentinelHubRequest(
         evalscript=evalscript,
         input_data=[
             SentinelHubRequest.input_data(
                 data_collection=DataCollection.SENTINEL2_L2A,
                 time_interval=time_interval,
-                maxcc=1.0 
+                maxcc=0.5 
             )
         ],
         responses=[
@@ -59,7 +60,6 @@ def get_sentinel_data(bbox_coords, time_interval):
 
     response_list = request.get_data()
     
-    # Check if empty
     if not response_list or len(response_list) < 2:
         return [], []
     
@@ -75,30 +75,18 @@ def get_sentinel_data(bbox_coords, time_interval):
             ts_date = pd.to_datetime(ts_str).date()
             avg_ndvi = np.mean(img)
             
-            # Smart Filter: NDVI must be > 0.05 to be "Real" (Not cloud/water)
-            if not np.isnan(avg_ndvi) and avg_ndvi > 0.05:
+            # Simple check: Is the data not broken?
+            if not np.isnan(avg_ndvi):
                 clean_dates.append(ts_date)
                 ndvi_scores.append(avg_ndvi)
             
     return clean_dates, ndvi_scores
 
-# 3. VISUAL FILMSTRIP (New Feature)
-def get_filmstrip(bbox_coords, dates_list, limit=4):
-    """
-    Fetches 3-4 True Color images evenly spaced across the timeframe
-    to show the user the "Real Data."
-    """
+# 3. VISUAL CONFIRMATION (Single Best Image)
+def get_visual_confirm(bbox_coords, date_obj):
     config = get_config()
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
-    
-    # Select indices evenly spaced (e.g., Start, Middle, End)
-    if len(dates_list) < limit:
-        selected_dates = dates_list
-    else:
-        indices = np.linspace(0, len(dates_list) - 1, limit, dtype=int)
-        selected_dates = [dates_list[i] for i in indices]
-    
-    images = []
+    date_str = date_obj.strftime("%Y-%m-%d")
     
     evalscript = """
     //VERSION=3
@@ -113,23 +101,22 @@ def get_filmstrip(bbox_coords, dates_list, limit=4):
     }
     """
     
-    for d in selected_dates:
-        d_str = d.strftime("%Y-%m-%d")
-        request = SentinelHubRequest(
-            evalscript=evalscript,
-            input_data=[
-                SentinelHubRequest.input_data(
-                    data_collection=DataCollection.SENTINEL2_L2A,
-                    time_interval=(d_str, d_str),
-                    maxcc=1.0
-                )
-            ],
-            responses=[SentinelHubRequest.output_response("default", MimeType.PNG)],
-            bbox=bbox,
-            config=config,
-        )
-        data = request.get_data()
-        if len(data) > 0:
-            images.append((d, data[0]))
-            
-    return images
+    # Allow 80% clouds for the visual (better to see something than nothing)
+    request = SentinelHubRequest(
+        evalscript=evalscript,
+        input_data=[
+            SentinelHubRequest.input_data(
+                data_collection=DataCollection.SENTINEL2_L2A,
+                time_interval=(date_str, date_str), 
+                maxcc=0.8
+            )
+        ],
+        responses=[SentinelHubRequest.output_response("default", MimeType.PNG)],
+        bbox=bbox,
+        config=config,
+    )
+    
+    data = request.get_data()
+    if len(data) > 0:
+        return data[0]
+    return None
