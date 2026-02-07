@@ -7,7 +7,7 @@
 
 **Orbital Harvest** is a cloud-native geospatial dashboard designed to monitor and forecast agricultural health in the St. Louis region.
 
-By ingesting multi-spectral imagery from the **European Space Agency's Sentinel-2 constellation**, this application calculates the **Normalized Difference Vegetation Index (NDVI)** to quantify biomass density. It then applies a linear regression model to 4 years of historical data to predict future crop yields.
+By ingesting multi-spectral imagery from the **European Space Agency's Sentinel-2 constellation**, this application calculates the **Normalized Difference Vegetation Index (NDVI)** to quantify biomass density. It then applies a linear regression model to 4 years of historical data to predict future crop yields.=
 
 ---
 
@@ -78,3 +78,5 @@ Data Processing: Pandas, NumPy
 Machine Learning: Scikit-Learn (Linear Regression)
 
 CI/CD: GitLab CI
+
+~~~~WORKING CONCEPT, PAID API ACCESS IS REQUIRED FOR THIS TO WORK~~~~~~
