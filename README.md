@@ -9,6 +9,11 @@
 
 By ingesting multi-spectral imagery from the **European Space Agency's Sentinel-2 constellation**, this application calculates the **Normalized Difference Vegetation Index (NDVI)** to quantify biomass density. It then applies a linear regression model to 4 years of historical data to predict future crop yields.=
 
+This application is a Cloud-Native Geospatial Dashboard that automates the ingestion of satellite imagery to monitor agricultural health in real-time.
+
+It connects to the European Space Agency's Sentinel-2 satellite constellation via API, downloads multi-spectral data (specifically Near-Infrared and Red bands) for a specific user-defined location, and processes this data using Python (Pandas/NumPy) to calculate the Normalized Difference Vegetation Index (NDVI)—a key metric for biomass density and crop health.
+
+Finally, it visualizes this data on an interactive time-series chart, displays true-color satellite imagery for ground-truth verification, and uses a linear regression model to forecast future yield trends.
 ---
 
 
