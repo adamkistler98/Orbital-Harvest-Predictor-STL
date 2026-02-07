@@ -2,7 +2,7 @@ import sentinelhub
 from sentinelhub import SHConfig, SentinelHubRequest, DataCollection, MimeType, BBox, CRS
 import numpy as np
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 import os
 import streamlit as st
 
@@ -20,7 +20,7 @@ def get_config():
         raise ValueError("Missing Sentinel Hub Credentials!")
     return config
 
-# 2. DATA FETCHING (4-Year History)
+# 2. DATA FETCHING (Aggressive Mode)
 def get_sentinel_data(bbox_coords, time_interval):
     config = get_config()
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
@@ -39,8 +39,7 @@ def get_sentinel_data(bbox_coords, time_interval):
     }
     """
     
-    # CRITICAL FIX: Set maxcc to 1.0 (Allow ALL clouds)
-    # We will filter the bad data in Python. This prevents "No Data" errors.
+    # We allow 100% clouds (maxcc=1.0) to ensure we get a response
     request = SentinelHubRequest(
         evalscript=evalscript,
         input_data=[
@@ -60,6 +59,7 @@ def get_sentinel_data(bbox_coords, time_interval):
 
     response_list = request.get_data()
     
+    # Check if empty
     if not response_list or len(response_list) < 2:
         return [], []
     
@@ -73,23 +73,32 @@ def get_sentinel_data(bbox_coords, time_interval):
         if i < len(metadata):
             ts_str = metadata[i]['timestamp']
             ts_date = pd.to_datetime(ts_str).date()
-            
             avg_ndvi = np.mean(img)
             
-            # LOCAL FILTER: Only keep data if it makes sense (NDVI > 0.0)
-            # Clouds usually produce random noise or negative NDVI.
-            # Real vegetation is between 0.2 and 0.9.
+            # Smart Filter: NDVI must be > 0.05 to be "Real" (Not cloud/water)
             if not np.isnan(avg_ndvi) and avg_ndvi > 0.05:
                 clean_dates.append(ts_date)
                 ndvi_scores.append(avg_ndvi)
             
     return clean_dates, ndvi_scores
 
-# 3. VISUAL CONFIRMATION (The Real Photos)
-def get_visual_confirm(bbox_coords, date_obj):
+# 3. VISUAL FILMSTRIP (New Feature)
+def get_filmstrip(bbox_coords, dates_list, limit=4):
+    """
+    Fetches 3-4 True Color images evenly spaced across the timeframe
+    to show the user the "Real Data."
+    """
     config = get_config()
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
-    date_str = date_obj.strftime("%Y-%m-%d")
+    
+    # Select indices evenly spaced (e.g., Start, Middle, End)
+    if len(dates_list) < limit:
+        selected_dates = dates_list
+    else:
+        indices = np.linspace(0, len(dates_list) - 1, limit, dtype=int)
+        selected_dates = [dates_list[i] for i in indices]
+    
+    images = []
     
     evalscript = """
     //VERSION=3
@@ -104,21 +113,23 @@ def get_visual_confirm(bbox_coords, date_obj):
     }
     """
     
-    request = SentinelHubRequest(
-        evalscript=evalscript,
-        input_data=[
-            SentinelHubRequest.input_data(
-                data_collection=DataCollection.SENTINEL2_L2A,
-                time_interval=(date_str, date_str), 
-                maxcc=1.0 
-            )
-        ],
-        responses=[SentinelHubRequest.output_response("default", MimeType.PNG)],
-        bbox=bbox,
-        config=config,
-    )
-    
-    data = request.get_data()
-    if len(data) > 0:
-        return data[0]
-    return None
+    for d in selected_dates:
+        d_str = d.strftime("%Y-%m-%d")
+        request = SentinelHubRequest(
+            evalscript=evalscript,
+            input_data=[
+                SentinelHubRequest.input_data(
+                    data_collection=DataCollection.SENTINEL2_L2A,
+                    time_interval=(d_str, d_str),
+                    maxcc=1.0
+                )
+            ],
+            responses=[SentinelHubRequest.output_response("default", MimeType.PNG)],
+            bbox=bbox,
+            config=config,
+        )
+        data = request.get_data()
+        if len(data) > 0:
+            images.append((d, data[0]))
+            
+    return images
