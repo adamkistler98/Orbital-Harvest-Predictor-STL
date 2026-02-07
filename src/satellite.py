@@ -1,6 +1,6 @@
 # src/satellite.py
 import sentinelhub
-from sentinelhub import SHConfig, SentinelHubRequest, DataCollection, MimeType, Box, BBox, CRS
+from sentinelhub import SHConfig, SentinelHubRequest, DataCollection, MimeType, BBox, CRS
 import numpy as np
 import pandas as pd
 from datetime import date
@@ -14,24 +14,23 @@ def get_sentinel_data(bbox_coords, time_interval):
     """
     
     # 1. AUTHENTICATION
-    # We try to get keys from Streamlit Secrets (Cloud) first, then Env Vars (Local)
     config = SHConfig()
     
+    # Prioritize Streamlit Secrets (Cloud), fallback to Env Vars (Local)
     if "SH_CLIENT_ID" in st.secrets:
         config.sh_client_id = st.secrets["SH_CLIENT_ID"]
         config.sh_client_secret = st.secrets["SH_CLIENT_SECRET"]
     else:
-        # Fallback for local testing if secrets.toml isn't set up
         config.sh_client_id = os.environ.get("SH_CLIENT_ID")
         config.sh_client_secret = os.environ.get("SH_CLIENT_SECRET")
 
     if not config.sh_client_id:
-        raise ValueError("Missing Sentinel Hub Credentials!")
+        raise ValueError("Missing Sentinel Hub Credentials! Check Streamlit Secrets.")
 
     # 2. DEFINE THE REQUEST
+    # We use BBox (Bounding Box), not Box.
     bbox = BBox(bbox=bbox_coords, crs=CRS.WGS84)
     
-    # Evalscript: Calculates NDVI *on the satellite server* to save bandwidth
     evalscript = """
     //VERSION=3
     function setup() {
@@ -47,14 +46,13 @@ def get_sentinel_data(bbox_coords, time_interval):
     }
     """
 
-    # We ask for all available images in the time window (max 10 for speed)
     request = SentinelHubRequest(
         evalscript=evalscript,
         input_data=[
             SentinelHubRequest.input_data(
                 data_collection=DataCollection.SENTINEL2_L2A,
                 time_interval=time_interval,
-                maxcc=20.0 # Ignore cloudy days (>20% cloud cover)
+                maxcc=20.0 
             )
         ],
         responses=[
@@ -68,14 +66,11 @@ def get_sentinel_data(bbox_coords, time_interval):
     data = request.get_data()
     dates = request.get_dates()
     
-    # Calculate the average NDVI for the whole farm for each date
-    # (data is a list of images. We want one number per image.)
     clean_dates = []
     ndvi_scores = []
     
     for i, img in enumerate(data):
         avg_ndvi = np.mean(img)
-        # Filter out "empty" or bad data chunks
         if not np.isnan(avg_ndvi) and avg_ndvi > -1:
             clean_dates.append(dates[i])
             ndvi_scores.append(avg_ndvi)
