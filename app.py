@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 # 2. WELCOME HEADER
-# We use a nice banner image (You can replace this URL with a local file if you want)
+# We use a nice banner image
 st.image("https://images.unsplash.com/photo-1625246333195-58197bd47d26?auto=format&fit=crop&w=1200&q=80", use_container_width=True)
 st.title("🌾 Orbital Harvest Predictor")
 st.markdown("""
@@ -47,7 +47,9 @@ if st.sidebar.button("🚀 Run Analysis"):
         try:
             bbox = eval(coords_input)
             end_d = date.today()
-            start_d = end_d - timedelta(days=90)
+            
+            # FIXED: Look back 365 days (1 Full Year) to ensure we find clear data
+            start_d = end_d - timedelta(days=365)
             
             # 1. Get Data
             dates, ndvi_scores = get_sentinel_data(bbox, (start_d, end_d))
@@ -82,7 +84,13 @@ if st.sidebar.button("🚀 Run Analysis"):
                 else:
                     m3.metric("Trend", "Stable", delta="Neutral", delta_color="off")
                 
-                m4.metric("Model Confidence", f"{conf_percent:.1f}%", help="R-Squared Score of the Regression Line")
+                # Color code confidence
+                if conf_percent > 70:
+                    m4.metric("Model Confidence", f"{conf_percent:.1f}%", delta="High Accuracy")
+                elif conf_percent > 40:
+                    m4.metric("Model Confidence", f"{conf_percent:.1f}%", delta="Moderate", delta_color="off")
+                else:
+                    m4.metric("Model Confidence", f"{conf_percent:.1f}%", delta="Low / Noisy", delta_color="inverse")
 
                 # The Main Chart
                 chart_data = pd.DataFrame({
@@ -91,7 +99,7 @@ if st.sidebar.button("🚀 Run Analysis"):
                 }).set_index("Date")
                 st.line_chart(chart_data)
                 
-                st.info(f"ℹ️ Prediction Model based on {len(dates)} satellite passes over the last 90 days.")
+                st.info(f"ℹ️ Prediction Model based on {len(dates)} satellite passes over the last 365 days.")
 
             with tab2:
                 st.subheader("Ground Truth Validation")
