@@ -11,11 +11,6 @@ By ingesting multi-spectral imagery from the **European Space Agency's Sentinel-
 
 ---
 
-## 📸 Dashboard Preview
-
-*(Place a screenshot of your app here - `screenshots/dashboard_v1.png`)*
-
----
 
 ## 🧠 The Science: Spectral Analysis
 
