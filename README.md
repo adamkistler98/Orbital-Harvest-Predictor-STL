@@ -40,9 +40,7 @@ This project demonstrates a **Platform Engineering** approach to data science:
 2.  **Processing Layer:** Python-based `pandas` & `numpy` pipeline filters cloud cover and computes NDVI indices locally.
 3.  **Analysis Layer:** `scikit-learn` Linear Regression model trains on 4+ years of time-series data to forecast yield trends.
 4.  **Presentation Layer:** Streamlit dashboard provides interactive visualization and "Ground Truth" verification via True Color satellite imagery.
-
 ---
-
 ## 🚀 Local Installation & Setup
 
 ### Prerequisites
